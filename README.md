@@ -71,6 +71,7 @@ docker run --gpus all -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-gpu:latest  #NV
         # Or run directly via UV:
         ./start-gpu.sh  # For GPU support
         ./start-cpu.sh  # For CPU support
+        ./start-mps.sh # For Macbook Support
         ```
 </details>
 <details>
