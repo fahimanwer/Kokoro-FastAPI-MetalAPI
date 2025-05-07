@@ -45,7 +45,7 @@ docker run --gpus all -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-gpu:latest  #NV
 
 </details>
 
-<details>
+<details open>
 
 <summary>Quick Start (docker compose) </summary>
 
@@ -93,7 +93,8 @@ docker run --gpus all -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-gpu:latest  #NV
         Linux and macOS
         ```bash
         ./start-cpu.sh OR
-        ./start-gpu.sh 
+        ./start-gpu.sh OR
+        ./start-mps.sh
         ```
 
         Windows
