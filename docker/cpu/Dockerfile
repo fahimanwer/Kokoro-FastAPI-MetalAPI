@@ -50,7 +50,6 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONPATH=/app:/app/api \
     PATH="/app/.venv/bin:$PATH" \
     UV_LINK_MODE=copy \
-    USE_GPU=false \
     PHONEMIZER_ESPEAK_PATH=/usr/bin \
     PHONEMIZER_ESPEAK_DATA=/usr/share/espeak-ng-data \
     ESPEAK_DATA_PATH=/usr/share/espeak-ng-data
@@ -61,6 +60,5 @@ RUN if [ "$DOWNLOAD_MODEL" = "true" ]; then \
     python download_model.py --output api/src/models/v1_0; \
     fi
 
-ENV DEVICE="cpu"
 # Run FastAPI server through entrypoint.sh
 CMD ["./entrypoint.sh"]
