@@ -15,6 +15,7 @@
 Dockerized FastAPI wrapper for [Kokoro-82M](https://huggingface.co/hexgrad/Kokoro-82M) text-to-speech model
 - Multi-language support (English, Japanese, Korean, Chinese, _Vietnamese soon_)
 - OpenAI-compatible Speech endpoint, NVIDIA GPU accelerated or CPU inference with PyTorch 
+- Apple Silicon (M1/M2/M3) GPU acceleration via Metal Performance Shaders (MPS)
 - ONNX support coming soon, see v0.1.5 and earlier for legacy ONNX support in the interim
 - Debug endpoints for monitoring system stats, integrated web UI on localhost:8880/web
 - Phoneme-based audio generation, phoneme generation
@@ -45,7 +46,7 @@ docker run --gpus all -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-gpu:latest  #NV
 
 </details>
 
-<details open>
+<details>
 
 <summary>Quick Start (docker compose) </summary>
 
@@ -60,10 +61,12 @@ docker run --gpus all -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-gpu:latest  #NV
         # or cd docker/cpu  # For CPU support
         docker compose up --build
 
-        # *Note for Apple Silicon (M1/M2) users:
-        # The current GPU build relies on CUDA, which is not supported on Apple Silicon.  
-        # If you are on an M1/M2/M3 Mac, please use the `docker/cpu` setup.  
-        # MPS (Apple's GPU acceleration) support is planned but not yet available.
+        # *Note for Apple Silicon (M1/M2/M3) users:
+        # The Docker GPU build (`docker/gpu`) relies on CUDA and is not compatible with Apple Silicon.
+        # For Docker on Apple Silicon, use the `docker/cpu` setup which now automatically detects 
+        # and utilizes MPS (Metal Performance Shaders) when running on Apple Silicon.
+        # For native Apple Silicon GPU support without Docker, see the "Direct Run (via uv)" 
+        # section below for instructions on using the `start-mps.sh` script.
 
         # Models will auto-download, but if needed you can manually download:
         python docker/scripts/download_model.py --output api/src/models/v1_0
@@ -71,37 +74,51 @@ docker run --gpus all -p 8880:8880 ghcr.io/remsky/kokoro-fastapi-gpu:latest  #NV
         # Or run directly via UV:
         ./start-gpu.sh  # For GPU support
         ./start-cpu.sh  # For CPU support
-        ./start-mps.sh # For Macbook Support
         ```
 </details>
 <details>
 <summary>Direct Run (via uv) </summary>
 
-1. Install prerequisites ():
-   - Install [astral-uv](https://docs.astral.sh/uv/)
-   - Install [espeak-ng](https://github.com/espeak-ng/espeak-ng) in your system if you want it available as a fallback for unknown words/sounds. The upstream libraries may attempt to handle this, but results have varied.
-   - Clone the repository:
+1.  Install prerequisites:
+    *   Install [uv](https://docs.astral.sh/uv/) (a fast Python package installer and resolver).
+    *   Install `git`.
+    *   (Optional but Recommended for some audio formats) Install [ffmpeg](https://ffmpeg.org/download.html).
+    *   (macOS) Install `espeak-ng`: `brew install espeak-ng`
+
+2.  Clone the repository:
+    ```bash
+    git clone https://github.com/remsky/Kokoro-FastAPI.git
+    cd Kokoro-FastAPI
+    ```
+
+3.  Start the server:
+    *   **For NVIDIA GPU (Linux/WSL2):**
         ```bash
-        git clone https://github.com/remsky/Kokoro-FastAPI.git
-        cd Kokoro-FastAPI
+        ./start-gpu.sh
         ```
-        
-        Run the [model download script](https://github.com/remsky/Kokoro-FastAPI/blob/master/docker/scripts/download_model.py) if you haven't already
-     
-        Start directly via UV (with hot-reload)
-        
-        Linux and macOS
+    *   **For CPU:**
         ```bash
-        ./start-cpu.sh OR
-        ./start-gpu.sh OR
+        ./start-cpu.sh
+        ```
+    *   **For Apple Silicon (M1/M2/M3 Macs with MPS):**
+        A script `start-mps.sh` is provided to run the application using Apple's Metal Performance Shaders for GPU acceleration.
+        ```bash
         ./start-mps.sh
         ```
+        This script will:
+        *   Create a virtual environment using `uv venv` if one doesn't exist.
+        *   Install dependencies using `uv pip install -e ".[cpu]"`. The CPU extras include the base PyTorch version compatible with MPS.
+        *   Set necessary environment variables, including `DEVICE_TYPE=mps` and `PYTORCH_ENABLE_MPS_FALLBACK=1`. The fallback is important as some PyTorch operations used by the model may not yet have full MPS support, and this allows them to run on the CPU.
+        *   Download models and start the Uvicorn server.
 
-        Windows
-        ```powershell
-        .\start-cpu.ps1 OR
-        .\start-gpu.ps1 
-        ```
+        **Note on `ffmpeg` for MPS users:** The server may log a warning if `ffmpeg` is not found. While not strictly required for basic WAV/MP3 output, installing `ffmpeg` (e.g., `brew install ffmpeg`) is recommended for full audio format support.
+
+4.  (First run) The necessary models will be downloaded automatically. This might take some time.
+
+5.  Once started, you can access:
+    *   The API: `http://localhost:8880`
+    *   API Documentation: `http://localhost:8880/docs`
+    *   Web Interface: `http://localhost:8880/web`
 
 </details>
 
@@ -330,6 +347,7 @@ Key Streaming Metrics:
     - ~300ms  (GPU) @ 400 
     - ~3500ms (CPU) @ 200 (older i7)
     - ~<1s    (CPU) @ 200 (M3 Pro)
+    - ~<1s    (MPS) @ 200 (M1/M2/M3)
 - Adjustable chunking settings for real-time playback 
 
 *Note: Artifacts in intonation can increase with smaller chunks*
@@ -357,10 +375,10 @@ Key Performance Metrics:
 - Average Processing Rate: 137.67 tokens/second (cl100k_base)
 </details>
 <details>
-<summary>GPU Vs. CPU</summary>
+<summary>GPU Vs. CPU Vs. MPS</summary>
 
 ```bash
-# GPU: Requires NVIDIA GPU with CUDA 12.8 support (~35x-100x realtime speed)
+# NVIDIA GPU: Requires NVIDIA GPU with CUDA 12.8 support (~35x-100x realtime speed)
 cd docker/gpu
 docker compose up --build
 
@@ -368,7 +386,14 @@ docker compose up --build
 cd docker/cpu
 docker compose up --build
 
+# Apple Silicon MPS: Direct run (not Docker)
+./start-mps.sh
 ```
+
+*Note: The Apple Silicon (M1/M2/M3) setup via MPS generally provides 3-5x faster inference than CPU mode, though performance varies by model.*
+
+*Note: When running the CPU Docker container on Apple Silicon, it will now automatically detect and use MPS if available, with CPU fallback for unsupported operations.*
+
 *Note: Overall speed may have reduced somewhat with the structural changes to accommodate streaming. Looking into it* 
 </details>
 
@@ -385,234 +410,68 @@ The model is capable of processing up to a 510 phonemized token chunk at a time,
 <details>
 <summary>Timestamped Captions & Phonemes</summary>
 
-Generate audio with word-level timestamps without streaming:
+Provides text to speech broken into the three chunks for troubleshooting and verification, as well as enabling caption generation with timestamps for each word.
+
 ```python
 import requests
-import base64
-import json
 
 response = requests.post(
-    "http://localhost:8880/dev/captioned_speech",
+    "http://localhost:8880/v1/audio/generate/all",
     json={
-        "model": "kokoro",
-        "input": "Hello world!",
+        "text": "Hello world!",
         "voice": "af_bella",
-        "speed": 1.0,
-        "response_format": "mp3",
-        "stream": False,
-    },
-    stream=False
+    }
 )
 
-with open("output.mp3","wb") as f:
-
-    audio_json=json.loads(response.content)
-    
-    # Decode base 64 stream to bytes
-    chunk_audio=base64.b64decode(audio_json["audio"].encode("utf-8"))
-    
-    # Process streaming chunks
-    f.write(chunk_audio)
-    
-    # Print word level timestamps
-    print(audio_json["timestamps"])
+result = response.json()
+print(result["phonemes"]) # Show the phoneme prediction of the model
+print(result["timestamps"]) # Show the per-word timestamps
 ```
 
-Generate audio with word-level timestamps with streaming:
-```python
-import requests
-import base64
-import json
+```sh
+{ 
+    "phonemes": "HH AH0 L OW1 . W ER1 L D .",
+    "timestamps": [
+        { "word": "Hello", "time": 103 },
+        { "word": "world!", "time": 400 }
+    ]
+}
 
-response = requests.post(
-    "http://localhost:8880/dev/captioned_speech",
-    json={
-        "model": "kokoro",
-        "input": "Hello world!",
-        "voice": "af_bella",
-        "speed": 1.0,
-        "response_format": "mp3",
-        "stream": True,
-    },
-    stream=True
-)
-
-f=open("output.mp3","wb")
-for chunk in response.iter_lines(decode_unicode=True):
-    if chunk:
-        chunk_json=json.loads(chunk)
-        
-        # Decode base 64 stream to bytes
-        chunk_audio=base64.b64decode(chunk_json["audio"].encode("utf-8"))
-        
-        # Process streaming chunks
-        f.write(chunk_audio)
-        
-        # Print word level timestamps
-        print(chunk_json["timestamps"])
 ```
+
+**Phoneme Debugging** is also available via the `/v1/audio/generate/phonemes` endpoint.
+
+*Note: More elaborate timestamping options may be implemented in the future* 
 </details>
 
 <details>
-<summary>Phoneme & Token Routes</summary>
+<summary>MPS Support for Apple Silicon</summary>
 
-Convert text to phonemes and/or generate audio directly from phonemes:
-```python
-import requests
+This project now includes full support for Apple Silicon (M1/M2/M3) GPUs using Metal Performance Shaders (MPS). This provides significantly better performance than CPU-only mode.
 
-def get_phonemes(text: str, language: str = "a"):
-    """Get phonemes and tokens for input text"""
-    response = requests.post(
-        "http://localhost:8880/dev/phonemize",
-        json={"text": text, "language": language}  # "a" for American English
-    )
-    response.raise_for_status()
-    result = response.json()
-    return result["phonemes"], result["tokens"]
+### Key Features:
+- **Auto-detection:** When using Docker, the CPU image will automatically detect Apple Silicon and use MPS if available.
+- **CPU Fallback:** Uses `PYTORCH_ENABLE_MPS_FALLBACK=1` to handle operations not supported by MPS.
+- **Native Script:** A dedicated `start-mps.sh` script for non-Docker setup.
 
-def generate_audio_from_phonemes(phonemes: str, voice: str = "af_bella"):
-    """Generate audio from phonemes"""
-    response = requests.post(
-        "http://localhost:8880/dev/generate_from_phonemes",
-        json={"phonemes": phonemes, "voice": voice},
-        headers={"Accept": "audio/wav"}
-    )
-    if response.status_code != 200:
-        print(f"Error: {response.text}")
-        return None
-    return response.content
+### Docker Performance Notes:
+- When running on an Apple Silicon Mac with Docker Desktop, make sure Docker is properly configured to use the host's GPU.
+- The Docker CPU image automatically detects and uses MPS on Apple Silicon.
 
-# Example usage
-text = "Hello world!"
-try:
-    # Convert text to phonemes
-    phonemes, tokens = get_phonemes(text)
-    print(f"Phonemes: {phonemes}")  # e.g. ðɪs ɪz ˈoʊnli ɐ tˈɛst
-    print(f"Tokens: {tokens}")      # Token IDs including start/end tokens
-
-    # Generate and save audio
-    if audio_bytes := generate_audio_from_phonemes(phonemes):
-        with open("speech.wav", "wb") as f:
-            f.write(audio_bytes)
-        print(f"Generated {len(audio_bytes)} bytes of audio")
-except Exception as e:
-    print(f"Error: {e}")
+### Native Setup (recommended for best performance):
+1. Run the dedicated script:
+```bash
+./start-mps.sh
 ```
 
-See `examples/phoneme_examples/generate_phonemes.py` for a sample script.
-</details>
+This script:
+- Sets the appropriate environment variables
+- Installs dependencies compatible with MPS
+- Enables CPU fallback for operations not supported by MPS
 
-<details>
-<summary>Debug Endpoints</summary>
-
-Monitor system state and resource usage with these endpoints:
-
-- `/debug/threads` - Get thread information and stack traces
-- `/debug/storage` - Monitor temp file and output directory usage
-- `/debug/system` - Get system information (CPU, memory, GPU)
-- `/debug/session_pools` - View ONNX session and CUDA stream status
-
-Useful for debugging resource exhaustion or performance issues.
-</details>
-
-## Known Issues & Troubleshooting
-
-<details>
-<summary>Missing words & Missing some timestamps</summary>
-
-The api will automaticly do text normalization on input text which may incorrectly remove or change some phrases. This can be disabled by adding `"normalization_options":{"normalize": false}` to your request json:
-```python
-import requests
-
-response = requests.post(
-    "http://localhost:8880/v1/audio/speech",
-    json={
-        "input": "Hello world!",
-        "voice": "af_heart",
-        "response_format": "pcm",
-        "normalization_options":
-        {
-            "normalize": False
-        }
-    },
-    stream=True
-)
-
-for chunk in response.iter_content(chunk_size=1024):
-    if chunk:
-        # Process streaming chunks
-        pass
-```
-  
-</details>
-
-<details>
-<summary>Versioning & Development</summary>
-
-**Branching Strategy:**
-*   **`release` branch:** Contains the latest stable build, recommended for production use. Docker images tagged with specific versions (e.g., `v0.3.0`) are built from this branch.
-*   **`master` branch:** Used for active development. It may contain experimental features, ongoing changes, or fixes not yet in a stable release. Use this branch if you want the absolute latest code, but be aware it might be less stable. The `latest` Docker tag often points to builds from this branch.
-
-Note: This is a *development* focused project at its core. 
-
-If you run into trouble, you may have to roll back a version on the release tags if something comes up, or build up from source and/or troubleshoot + submit a PR.
-
-Free and open source is a community effort, and there's only really so many hours in a day. If you'd like to support the work, feel free to open a PR, buy me a coffee, or report any bugs/features/etc you find during use.
-
-  <a href="https://www.buymeacoffee.com/remsky" target="_blank">
-    <img 
-      src="https://cdn.buymeacoffee.com/buttons/v2/default-violet.png" 
-      alt="Buy Me A Coffee" 
-      style="height: 30px !important;width: 110px !important;"
-    >
-  </a>
-
-  
-</details>
-
-<details>
-<summary>Linux GPU Permissions</summary>
-
-Some Linux users may encounter GPU permission issues when running as non-root. 
-Can't guarantee anything, but here are some common solutions, consider your security requirements carefully
-
-### Option 1: Container Groups (Likely the best option)
-```yaml
-services:
-  kokoro-tts:
-    # ... existing config ...
-    group_add:
-      - "video"
-      - "render"
-```
-
-### Option 2: Host System Groups
-```yaml
-services:
-  kokoro-tts:
-    # ... existing config ...
-    user: "${UID}:${GID}"
-    group_add:
-      - "video"
-```
-Note: May require adding host user to groups: `sudo usermod -aG docker,video $USER` and system restart.
-
-### Option 3: Device Permissions (Use with caution)
-```yaml
-services:
-  kokoro-tts:
-    # ... existing config ...
-    devices:
-      - /dev/nvidia0:/dev/nvidia0
-      - /dev/nvidiactl:/dev/nvidiactl
-      - /dev/nvidia-uvm:/dev/nvidia-uvm
-```
-⚠️ Warning: Reduces system security. Use only in development environments.
-
-Prerequisites: NVIDIA GPU, drivers, and container toolkit must be properly configured.
-
-Visit [NVIDIA Container Toolkit installation](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) for more detailed information
-
+### Troubleshooting:
+- If you encounter warnings about "operator 'aten::angle' not implemented for MPS", this is normal and will be handled by the CPU fallback.
+- For optimal performance on Apple Silicon, ensure you have ffmpeg installed via homebrew: `brew install ffmpeg`.
 </details>
 
 ## Model and License
